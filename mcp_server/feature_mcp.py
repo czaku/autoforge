@@ -49,7 +49,7 @@ from api.dependency_resolver import (
 )
 from api.migration import migrate_json_to_sqlite
 from quality_gates import run_quality_gates, QualityGateManager
-from fitkind_prd_parser import FitKindPRDParser, parse_fitkind_prds_directory
+from universal_prd_parser import UniversalPRDParser, parse_structured_prds_directory
 
 # Configuration from environment
 PROJECT_DIR = Path(os.environ.get("PROJECT_DIR", ".")).resolve()
@@ -1157,32 +1157,33 @@ def ask_user(
 
 
 @mcp.tool()
-def feature_import_fitkind_prds(
-    prd_dir: Annotated[str, Field(description="Directory containing FitKind PRD JSON files")],
+def feature_import_structured_prds(
+    prd_dir: Annotated[str, Field(description="Directory containing structured PRD JSON files")],
     part_filter: Annotated[Optional[int], Field(description="Only import features from this part (optional)", ge=0)] = None
 ) -> str:
-    """Import features from FitKind-style PRD JSON files.
+    """Import features from structured PRD JSON files.
     
-    FitKind PRDs have a 'features' array where each feature has:
-    - id: Feature identifier
-    - name: Feature name
-    - description: Feature description
-    - part: Which part this feature belongs to
-    - acceptanceCriteria: Array of verification steps
-    - dependencies: Array of feature IDs this depends on
+    Structured PRDs have a 'features' array where each feature has:
+    - id: Feature identifier (optional)
+    - name: Feature name (required)
+    - description: Feature description (required)
+    - part: Which part this feature belongs to (optional)
+    - acceptanceCriteria/tasks/stories: Array of verification steps (required)
+    - dependencies: Array of feature IDs this depends on (optional)
+    - category: Category for grouping (optional)
     
-    This tool converts FitKind features to AutoForge features and imports them
+    This tool converts structured features to AutoForge features and imports them
     into the database with proper dependency tracking.
     
     Args:
-        prd_dir: Path to directory containing PRD JSON files (e.g., 'docs/prds/goal-1')
+        prd_dir: Path to directory containing PRD JSON files (e.g., 'docs/prds/part-1')
         part_filter: If provided, only import features from this part number
         
     Returns:
         JSON with import summary: features created, parts imported, any errors
     """
     try:
-        parser = FitKindPRDParser(PROJECT_DIR)
+        parser = UniversalPRDParser(PROJECT_DIR)
         prd_path = PROJECT_DIR / prd_dir
         
         if not prd_path.exists():
@@ -1192,9 +1193,9 @@ def feature_import_fitkind_prds(
             })
         
         # Parse all PRD files
-        fitkind_features = parser.parse_all_prds(prd_path)
+        structured_features = parser.parse_all_prds(prd_path)
         
-        if not fitkind_features:
+        if not structured_features:
             return json.dumps({
                 "success": False,
                 "error": "No features found in PRD files"
@@ -1202,10 +1203,10 @@ def feature_import_fitkind_prds(
         
         # Filter by part if specified
         if part_filter is not None:
-            fitkind_features = [f for f in fitkind_features if f.part == part_filter]
+            structured_features = [f for f in structured_features if f.part == part_filter]
         
         # Convert to AutoForge format
-        autoforge_features = [f.to_autoforge_feature() for f in fitkind_features]
+        autoforge_features = [f.to_autoforge_feature() for f in structured_features]
         
         # Create features in database using bulk create
         result_json = feature_create_bulk(
@@ -1220,14 +1221,14 @@ def feature_import_fitkind_prds(
         result = json.loads(result_json)
         
         # Get parts that were imported
-        parts = sorted(set(f.part for f in fitkind_features))
+        parts = sorted(set(f.part for f in structured_features))
         
         return json.dumps({
             "success": True,
             "features_created": len(autoforge_features),
             "parts_imported": parts,
             "database_result": result,
-            "sample_features": [f.name for f in fitkind_features[:5]]
+            "sample_features": [f.name for f in structured_features[:5]]
         }, indent=2)
         
     except Exception as e:

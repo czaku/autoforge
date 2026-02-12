@@ -1,16 +1,14 @@
 """
-FitKind PRD Parser
-==================
+Universal PRD Parser
+====================
 
-Converts FitKind-style PRD JSON files to AutoForge features.
+Converts PRD JSON files in various formats to AutoForge features.
 
-FitKind Format:
-- PRD has "features" array
-- Each feature has "acceptanceCriteria" or "tasks" array
-- We convert each top-level feature to an AutoForge feature
-- Sub-tasks become verification steps
+Supported Formats:
+1. Standard AutoForge: { "features": [ { "category", "name", "description", "steps" } ] }
+2. Structured PRD: { "features": [ { "id", "name", "description", "acceptanceCriteria"/"tasks"/"stories", "part", "dependencies" } ] }
 
-Example FitKind PRD:
+Example Structured PRD:
 {
   "features": [
     {
@@ -19,8 +17,7 @@ Example FitKind PRD:
       "description": "Implement user login...",
       "acceptanceCriteria": [
         "User can log in with email",
-        "User can log in with OAuth",
-        "Session persists after refresh"
+        "User can log in with OAuth"
       ],
       "part": 1,
       "dependencies": []
@@ -37,8 +34,8 @@ from dataclasses import dataclass, asdict
 
 
 @dataclass
-class FitKindFeature:
-    """Represents a FitKind feature."""
+class StructuredFeature:
+    """Represents a feature from a structured PRD format."""
     id: str
     name: str
     description: str
@@ -51,7 +48,7 @@ class FitKindFeature:
         """Convert to AutoForge feature format."""
         return {
             "category": self.category or f"Part {self.part}",
-            "name": f"#{self.id}: {self.name}",
+            "name": f"#{self.id}: {self.name}" if self.id else self.name,
             "description": self.description,
             "steps": self.acceptance_criteria,
             "external_id": self.id,
@@ -60,13 +57,13 @@ class FitKindFeature:
         }
 
 
-class FitKindPRDParser:
-    """Parser for FitKind-style PRD JSON files."""
+class UniversalPRDParser:
+    """Parser for PRD JSON files in various formats."""
     
     def __init__(self, project_dir: Path):
         self.project_dir = project_dir
     
-    def parse_prd_file(self, prd_path: Path) -> List[FitKindFeature]:
+    def parse_prd_file(self, prd_path: Path) -> List[StructuredFeature]:
         """Parse a single PRD JSON file."""
         with open(prd_path) as f:
             data = json.load(f)
@@ -75,7 +72,7 @@ class FitKindPRDParser:
         prd_features = data.get('features', [])
         
         for feature_data in prd_features:
-            # Extract acceptance criteria (could be 'acceptanceCriteria' or 'tasks')
+            # Extract acceptance criteria (could be 'acceptanceCriteria', 'tasks', or 'stories')
             criteria = feature_data.get('acceptanceCriteria', [])
             if not criteria:
                 criteria = feature_data.get('tasks', [])
@@ -87,8 +84,8 @@ class FitKindPRDParser:
                 # Handle case where criteria is array of objects
                 criteria = [c.get('description', str(c)) for c in criteria]
             
-            feature = FitKindFeature(
-                id=feature_data.get('id', 'unknown'),
+            feature = StructuredFeature(
+                id=feature_data.get('id', ''),
                 name=feature_data.get('name', 'Unnamed Feature'),
                 description=feature_data.get('description', ''),
                 part=feature_data.get('part', 0),
@@ -123,7 +120,7 @@ class FitKindPRDParser:
         part_filter: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
-        Convert FitKind PRDs to AutoForge features.
+        Convert structured PRDs to AutoForge features.
         
         Args:
             prd_dir: Directory containing PRD JSON files
@@ -132,15 +129,15 @@ class FitKindPRDParser:
         Returns:
             List of AutoForge feature dictionaries
         """
-        fitkind_features = self.parse_all_prds(prd_dir)
+        structured_features = self.parse_all_prds(prd_dir)
         
         autoforge_features = []
-        for fk_feature in fitkind_features:
+        for feature in structured_features:
             # Apply part filter if specified
-            if part_filter is not None and fk_feature.part != part_filter:
+            if part_filter is not None and feature.part != part_filter:
                 continue
             
-            autoforge_features.append(fk_feature.to_autoforge_feature())
+            autoforge_features.append(feature.to_autoforge_feature())
         
         return autoforge_features
     
@@ -186,23 +183,23 @@ class FitKindPRDParser:
         }
 
 
-def parse_fitkind_prd(prd_path: str) -> List[Dict[str, Any]]:
+def parse_structured_prd(prd_path: str) -> List[Dict[str, Any]]:
     """
-    Convenience function to parse a FitKind PRD file.
+    Convenience function to parse a structured PRD file.
     
     Returns list of AutoForge-compatible feature dictionaries.
     """
-    parser = FitKindPRDParser(Path.cwd())
+    parser = UniversalPRDParser(Path.cwd())
     features = parser.parse_prd_file(Path(prd_path))
     return [f.to_autoforge_feature() for f in features]
 
 
-def parse_fitkind_prds_directory(prd_dir: str) -> List[Dict[str, Any]]:
+def parse_structured_prds_directory(prd_dir: str) -> List[Dict[str, Any]]:
     """
-    Convenience function to parse all FitKind PRDs in a directory.
+    Convenience function to parse all structured PRDs in a directory.
     
     Returns list of AutoForge-compatible feature dictionaries.
     """
-    parser = FitKindPRDParser(Path.cwd())
+    parser = UniversalPRDParser(Path.cwd())
     features = parser.parse_all_prds(Path(prd_dir))
     return [f.to_autoforge_feature() for f in features]

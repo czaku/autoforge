@@ -1,0 +1,235 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://autoforge.ai/schemas/prd-v1.json",
+  "title": "AutoForge Structured PRD Schema",
+  "description": "Schema for structured Product Requirements Documents that can be imported into AutoForge",
+  "type": "object",
+  "required": ["features"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Title of the PRD"
+    },
+    "description": {
+      "type": "string",
+      "description": "Overall description of the feature set"
+    },
+    "version": {
+      "type": "string",
+      "description": "PRD version (e.g., '1.0.0')"
+    },
+    "part": {
+      "type": "integer",
+      "description": "Part number for multi-part implementations",
+      "minimum": 0
+    },
+    "features": {
+      "type": "array",
+      "description": "List of features to implement",
+      "items": {
+        "$ref": "#/definitions/feature"
+      },
+      "minItems": 1
+    }
+  },
+  "definitions": {
+    "feature": {
+      "type": "object",
+      "required": ["name", "description"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the feature (e.g., 'auth-001')"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name of the feature",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of what the feature should do",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "description": "Category for grouping related features (e.g., 'Authentication', 'API', 'UI')",
+          "default": "General"
+        },
+        "part": {
+          "type": "integer",
+          "description": "Which part this feature belongs to (overrides PRD-level part)",
+          "minimum": 0
+        },
+        "priority": {
+          "type": "integer",
+          "description": "Priority within the part (lower = higher priority)",
+          "default": 0
+        },
+        "acceptanceCriteria": {
+          "type": "array",
+          "description": "List of criteria that must be met for the feature to be considered complete",
+          "items": {
+            "$ref": "#/definitions/criterion"
+          }
+        },
+        "tasks": {
+          "type": "array",
+          "description": "Alternative to acceptanceCriteria - list of implementation tasks",
+          "items": {
+            "$ref": "#/definitions/task"
+          }
+        },
+        "stories": {
+          "type": "array",
+          "description": "Alternative to acceptanceCriteria - list of user stories",
+          "items": {
+            "$ref": "#/definitions/story"
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "description": "IDs of features that must be completed before this one",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "description": "Tags for filtering and organization",
+          "items": {
+            "type": "string"
+          }
+        },
+        "estimatedHours": {
+          "type": "number",
+          "description": "Estimated implementation time in hours",
+          "minimum": 0
+        },
+        "platforms": {
+          "type": "array",
+          "description": "Platforms this feature targets (e.g., 'api', 'mobile', 'web', 'admin')",
+          "items": {
+            "type": "string",
+            "enum": ["api", "mobile", "web", "web-admin", "ios", "android", "desktop"]
+          }
+        }
+      }
+    },
+    "criterion": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Acceptance criterion as a string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "required": ["description"],
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "The acceptance criterion"
+            },
+            "testable": {
+              "type": "boolean",
+              "description": "Whether this criterion can be automatically tested",
+              "default": true
+            },
+            "priority": {
+              "type": "string",
+              "enum": ["must", "should", "could"],
+              "default": "must"
+            }
+          }
+        }
+      ]
+    },
+    "task": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Task description as a string"
+        },
+        {
+          "type": "object",
+          "required": ["description"],
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "Task description"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["todo", "in_progress", "done"],
+              "default": "todo"
+            }
+          }
+        }
+      ]
+    },
+    "story": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "User story in 'As a..., I want..., so that...' format"
+        },
+        {
+          "type": "object",
+          "required": ["asA", "iWant", "soThat"],
+          "properties": {
+            "asA": {
+              "type": "string",
+              "description": "User role"
+            },
+            "iWant": {
+              "type": "string",
+              "description": "Desired functionality"
+            },
+            "soThat": {
+              "type": "string",
+              "description": "Expected benefit"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "title": "User Authentication System",
+      "description": "Implement authentication for the application",
+      "version": "1.0.0",
+      "part": 1,
+      "features": [
+        {
+          "id": "auth-001",
+          "name": "User Registration",
+          "description": "Allow users to create new accounts",
+          "category": "Authentication",
+          "acceptanceCriteria": [
+            "User can register with email and password",
+            "Password must be at least 8 characters",
+            "Email verification is required"
+          ],
+          "dependencies": [],
+          "platforms": ["api", "web", "mobile"]
+        },
+        {
+          "id": "auth-002",
+          "name": "User Login",
+          "description": "Allow users to log in to their accounts",
+          "category": "Authentication",
+          "acceptanceCriteria": [
+            "User can log in with email and password",
+            "Invalid credentials show error message",
+            "Session persists for 24 hours"
+          ],
+          "dependencies": ["auth-001"],
+          "platforms": ["api", "web", "mobile"]
+        }
+      ]
+    }
+  ]
+}
