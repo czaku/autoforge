@@ -1,0 +1,60 @@
+# Quality Gates Configuration for AutoForge
+# These gates run BEFORE a feature can be marked as passing
+# Mechanical enforcement - no exceptions
+
+gates:
+  # API Build Gate
+  - name: api_build
+    command: cd api && pnpm build
+    required: true
+    timeout: 300  # 5 minutes
+    working_dir: .
+    
+  # API Test Gate
+  - name: api_test
+    command: cd api && pnpm test --passWithNoTests
+    required: true
+    timeout: 600  # 10 minutes
+    working_dir: .
+    
+  # API Lint Gate
+  - name: api_lint
+    command: cd api && pnpm lint
+    required: false  # Set to true for strict enforcement
+    timeout: 120
+    working_dir: .
+    
+  # Web Admin Build Gate
+  - name: web_admin_build
+    command: cd web-admin && pnpm build
+    required: true
+    timeout: 180
+    working_dir: .
+    
+  # Web App Build Gate
+  - name: web_app_build
+    command: cd web-app && pnpm build:mock
+    required: false  # Can be enabled later
+    timeout: 180
+    working_dir: .
+    
+  # Mobile TypeScript Check
+  - name: mobile_typecheck
+    command: cd native && npx tsc --noEmit
+    required: false  # Enable after fixing TS errors
+    timeout: 300
+    working_dir: .
+
+# Enforcement settings
+enforcement:
+  # If true, gates run automatically before feature_mark_passing
+  auto_run: true
+  
+  # If true, failing a required gate blocks the feature
+  block_on_failure: true
+  
+  # If true, all gates must pass (not just required ones)
+  strict_mode: false
+  
+  # Minimum test coverage percentage (optional)
+  min_coverage: 80

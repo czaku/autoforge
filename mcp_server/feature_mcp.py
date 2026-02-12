@@ -48,6 +48,8 @@ from api.dependency_resolver import (
     would_create_circular_dependency,
 )
 from api.migration import migrate_json_to_sqlite
+from quality_gates import run_quality_gates, QualityGateManager
+from fitkind_prd_parser import FitKindPRDParser, parse_fitkind_prds_directory
 
 # Configuration from environment
 PROJECT_DIR = Path(os.environ.get("PROJECT_DIR", ".")).resolve()
@@ -235,20 +237,51 @@ def feature_get_summary(
 def feature_mark_passing(
     feature_id: Annotated[int, Field(description="The ID of the feature to mark as passing", ge=1)]
 ) -> str:
-    """Mark a feature as passing after successful implementation.
+    """Mark a feature as passing after successful implementation AND quality gate verification.
 
-    Updates the feature's passes field to true and clears the in_progress flag.
-    Use this after you have implemented the feature and verified it works correctly.
+    CRITICAL: This tool now ENFORCES quality gates. Before marking a feature as passing,
+    it automatically runs:
+    1. Build checks (pnpm build)
+    2. Test checks (pnpm test --passWithNoTests)
+    3. Lint checks (pnpm lint)
+    
+    The feature will ONLY be marked passing if ALL required gates pass.
+    
+    Use this after you have implemented the feature. The tool will verify
+    your implementation before marking it complete.
 
     Args:
         feature_id: The ID of the feature to mark as passing
 
     Returns:
-        JSON with success confirmation: {success, feature_id, name}
+        JSON with success confirmation and gate results, or error with failure details.
     """
     session = get_session()
     try:
-        # Atomic update with state guard - prevents double-pass in parallel mode
+        # First check if feature exists and isn't already passing
+        feature = session.query(Feature).filter(Feature.id == feature_id).first()
+        if feature is None:
+            return json.dumps({"error": f"Feature with ID {feature_id} not found"})
+        
+        if feature.passes:
+            return json.dumps({"error": f"Feature with ID {feature_id} is already passing"})
+
+        # === QUALITY GATE ENFORCEMENT ===
+        # Run all quality gates before marking as passing
+        all_passed, gate_summary = run_quality_gates(PROJECT_DIR)
+        
+        if not all_passed:
+            # Gates failed - do NOT mark as passing
+            return json.dumps({
+                "success": False,
+                "error": "Quality gates failed. Feature NOT marked passing.",
+                "feature_id": feature_id,
+                "feature_name": feature.name,
+                "gates": gate_summary,
+                "message": "Fix the failing gates and try again."
+            }, indent=2)
+        
+        # All gates passed - proceed with marking
         result = session.execute(text("""
             UPDATE features
             SET passes = 1, in_progress = 0
@@ -257,17 +290,16 @@ def feature_mark_passing(
         session.commit()
 
         if result.rowcount == 0:
-            # Check why the update didn't match
-            feature = session.query(Feature).filter(Feature.id == feature_id).first()
-            if feature is None:
-                return json.dumps({"error": f"Feature with ID {feature_id} not found"})
-            if feature.passes:
-                return json.dumps({"error": f"Feature with ID {feature_id} is already passing"})
             return json.dumps({"error": "Failed to mark feature passing for unknown reason"})
 
-        # Get the feature name for the response
-        feature = session.query(Feature).filter(Feature.id == feature_id).first()
-        return json.dumps({"success": True, "feature_id": feature_id, "name": feature.name})
+        return json.dumps({
+            "success": True, 
+            "feature_id": feature_id, 
+            "name": feature.name,
+            "message": "Feature marked as passing - all quality gates passed",
+            "gates": gate_summary
+        }, indent=2)
+        
     except Exception as e:
         session.rollback()
         return json.dumps({"error": f"Failed to mark feature passing: {str(e)}"})
@@ -1122,6 +1154,87 @@ def ask_user(
             return json.dumps({"error": f"Question at index {i} must have 2-4 options"})
 
     return "Questions presented to the user. Their response will arrive as your next message."
+
+
+@mcp.tool()
+def feature_import_fitkind_prds(
+    prd_dir: Annotated[str, Field(description="Directory containing FitKind PRD JSON files")],
+    part_filter: Annotated[Optional[int], Field(description="Only import features from this part (optional)", ge=0)] = None
+) -> str:
+    """Import features from FitKind-style PRD JSON files.
+    
+    FitKind PRDs have a 'features' array where each feature has:
+    - id: Feature identifier
+    - name: Feature name
+    - description: Feature description
+    - part: Which part this feature belongs to
+    - acceptanceCriteria: Array of verification steps
+    - dependencies: Array of feature IDs this depends on
+    
+    This tool converts FitKind features to AutoForge features and imports them
+    into the database with proper dependency tracking.
+    
+    Args:
+        prd_dir: Path to directory containing PRD JSON files (e.g., 'docs/prds/goal-1')
+        part_filter: If provided, only import features from this part number
+        
+    Returns:
+        JSON with import summary: features created, parts imported, any errors
+    """
+    try:
+        parser = FitKindPRDParser(PROJECT_DIR)
+        prd_path = PROJECT_DIR / prd_dir
+        
+        if not prd_path.exists():
+            return json.dumps({
+                "success": False,
+                "error": f"PRD directory not found: {prd_dir}"
+            })
+        
+        # Parse all PRD files
+        fitkind_features = parser.parse_all_prds(prd_path)
+        
+        if not fitkind_features:
+            return json.dumps({
+                "success": False,
+                "error": "No features found in PRD files"
+            })
+        
+        # Filter by part if specified
+        if part_filter is not None:
+            fitkind_features = [f for f in fitkind_features if f.part == part_filter]
+        
+        # Convert to AutoForge format
+        autoforge_features = [f.to_autoforge_feature() for f in fitkind_features]
+        
+        # Create features in database using bulk create
+        result_json = feature_create_bulk(
+            features=[{
+                "category": f["category"],
+                "name": f["name"],
+                "description": f["description"],
+                "steps": f["steps"]
+            } for f in autoforge_features]
+        )
+        
+        result = json.loads(result_json)
+        
+        # Get parts that were imported
+        parts = sorted(set(f.part for f in fitkind_features))
+        
+        return json.dumps({
+            "success": True,
+            "features_created": len(autoforge_features),
+            "parts_imported": parts,
+            "database_result": result,
+            "sample_features": [f.name for f in fitkind_features[:5]]
+        }, indent=2)
+        
+    except Exception as e:
+        return json.dumps({
+            "success": False,
+            "error": f"Failed to import PRDs: {str(e)}"
+        })
 
 
 if __name__ == "__main__":
