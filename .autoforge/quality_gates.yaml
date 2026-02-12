@@ -44,6 +44,20 @@ gates:
     required: false  # Enable after fixing TS errors
     timeout: 300
     working_dir: .
+    
+  # iOS Build Gate
+  - name: ios_build
+    command: cd native/ios && xcodebuild -workspace fitkind.xcworkspace -scheme fitkind-Mock -configuration Debug-Mock -sdk iphonesimulator -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+    required: false  # Set to true when iOS builds are stable
+    timeout: 600  # 10 minutes - iOS builds are slow
+    working_dir: .
+    
+  # Android Build Gate
+  - name: android_build
+    command: cd native/android && ./gradlew assembleDebug
+    required: false  # Set to true when Android builds are stable
+    timeout: 600  # 10 minutes
+    working_dir: .
 
 # Enforcement settings
 enforcement:
