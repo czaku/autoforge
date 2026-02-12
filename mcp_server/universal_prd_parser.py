@@ -69,7 +69,12 @@ class UniversalPRDParser:
             data = json.load(f)
         
         features = []
+        
+        # Try 'features' first (standard format), then 'tasks' (FitKind format)
         prd_features = data.get('features', [])
+        if not prd_features and 'tasks' in data:
+            # FitKind format: tasks at top level, each with acceptanceCriteria
+            prd_features = data.get('tasks', [])
         
         for feature_data in prd_features:
             # Extract acceptance criteria (could be 'acceptanceCriteria', 'tasks', or 'stories')
@@ -84,14 +89,19 @@ class UniversalPRDParser:
                 # Handle case where criteria is array of objects
                 criteria = [c.get('description', str(c)) for c in criteria]
             
+            # For FitKind format, use task id/title/description
+            feature_id = feature_data.get('id', feature_data.get('taskId', ''))
+            feature_name = feature_data.get('name', feature_data.get('title', 'Unnamed Feature'))
+            feature_desc = feature_data.get('description', feature_data.get('context', ''))
+            
             feature = StructuredFeature(
-                id=feature_data.get('id', ''),
-                name=feature_data.get('name', 'Unnamed Feature'),
-                description=feature_data.get('description', ''),
-                part=feature_data.get('part', 0),
+                id=feature_id,
+                name=feature_name,
+                description=feature_desc,
+                part=feature_data.get('part', data.get('phase', 0)),
                 acceptance_criteria=criteria,
                 dependencies=feature_data.get('dependencies', []),
-                category=feature_data.get('category', '')
+                category=feature_data.get('category', data.get('phaseName', ''))
             )
             features.append(feature)
         
